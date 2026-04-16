@@ -251,19 +251,23 @@ public class TxClient {
     /// }
     /// ```
     public func enableAudioSession(audioSession: AVAudioSession) {
+        let rtc = RTCAudioSession.sharedInstance()
+        let hasPeer = self.calls.values.contains(where: { $0.peer != nil })
+        NSLog("[MANUAL_AUDIO] enableAudioSession — flag=\(TxClient.manualAudioSessionManagement) isAudioEnabled=\(rtc.isAudioEnabled) useManualAudio=\(rtc.useManualAudio) calls=\(self.calls.count) hasPeer=\(hasPeer) category=\(audioSession.category.rawValue)")
         if TxClient.manualAudioSessionManagement {
             Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] enableAudioSession called")
             self.pendingAudioEnable = true
 
-            // If any active call already has a peer, apply audio immediately
-            if self.calls.values.contains(where: { $0.peer != nil }) {
+            if hasPeer {
+                NSLog("[MANUAL_AUDIO] enableAudioSession — peer exists, applying now")
                 Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] Peer exists — applying audio now")
                 self.applyAudioEnable(audioSession: audioSession)
             } else {
+                NSLog("[MANUAL_AUDIO] enableAudioSession — no peer, deferring (pendingAudioEnable=true)")
                 Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] No peer yet — deferring audio activation")
             }
         } else {
-            // Original behavior (unchanged)
+            NSLog("[MANUAL_AUDIO] enableAudioSession — FLAG OFF, taking ORIGINAL branch")
             setupCorrectAudioConfiguration()
             setAudioSessionActive(true)
         }
@@ -2053,20 +2057,44 @@ extension TxClient {
     /// 2. A peer is created after `enableAudioSession()` was already called.
     internal func applyAudioEnable(audioSession: AVAudioSession) {
         let rtcSession = RTCAudioSession.sharedInstance()
+        NSLog("[MANUAL_AUDIO] applyAudioEnable BEFORE — isAudioEnabled=\(rtcSession.isAudioEnabled) useManualAudio=\(rtcSession.useManualAudio) category=\(audioSession.category.rawValue)")
+
+        // Cold-start fix: if CallKit hasn't activated the audio session yet
+        // (delegate-swap issue on first call), activate it ourselves. WebRTC's
+        // audioSessionDidActivate() is a no-op on an inactive/Ambient session.
+        if audioSession.category != .playAndRecord {
+            NSLog("[MANUAL_AUDIO] applyAudioEnable — session not PlayAndRecord (cold start), forcing activation")
+            do {
+                try audioSession.setCategory(.playAndRecord,
+                                             mode: .voiceChat,
+                                             options: [.allowBluetooth, .duckOthers])
+                try audioSession.setActive(true)
+                NSLog("[MANUAL_AUDIO] applyAudioEnable — force-activation SUCCEEDED category=\(audioSession.category.rawValue)")
+            } catch let err {
+                NSLog("[MANUAL_AUDIO] applyAudioEnable — force-activation FAILED: \(err.localizedDescription)")
+            }
+        }
+
         rtcSession.lockForConfiguration()
         Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] applyAudioEnable — activating RTCAudioSession")
         rtcSession.audioSessionDidActivate(audioSession)
         rtcSession.isAudioEnabled = true
         Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] applyAudioEnable — isAudioEnabled = true")
         rtcSession.unlockForConfiguration()
+        NSLog("[MANUAL_AUDIO] applyAudioEnable AFTER — isAudioEnabled=\(rtcSession.isAudioEnabled) useManualAudio=\(rtcSession.useManualAudio)")
+        self.pendingAudioEnable = false
     }
 
     /// Called by Call.swift after a Peer is created, to check if audio was deferred.
     internal func checkPendingAudioEnable() {
+        NSLog("[MANUAL_AUDIO] checkPendingAudioEnable — manualMode=\(TxClient.manualAudioSessionManagement) pending=\(pendingAudioEnable) calls=\(self.calls.count)")
         Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] checkPendingAudioEnable called — manualMode=\(TxClient.manualAudioSessionManagement) pending=\(pendingAudioEnable)")
         if TxClient.manualAudioSessionManagement && pendingAudioEnable {
+            NSLog("[MANUAL_AUDIO] checkPendingAudioEnable — APPLYING")
             Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] Peer ready — applying deferred audio activation")
             applyAudioEnable(audioSession: AVAudioSession.sharedInstance())
+        } else {
+            NSLog("[MANUAL_AUDIO] checkPendingAudioEnable — SKIPPED (manualMode=\(TxClient.manualAudioSessionManagement) pending=\(pendingAudioEnable))")
         }
     }
 }
