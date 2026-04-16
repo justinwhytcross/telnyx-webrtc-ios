@@ -2063,6 +2063,7 @@ extension TxClient {
 
     /// Called by Call.swift after a Peer is created, to check if audio was deferred.
     internal func checkPendingAudioEnable() {
+        Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] checkPendingAudioEnable called — manualMode=\(TxClient.manualAudioSessionManagement) pending=\(pendingAudioEnable)")
         if TxClient.manualAudioSessionManagement && pendingAudioEnable {
             Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] Peer ready — applying deferred audio activation")
             applyAudioEnable(audioSession: AVAudioSession.sharedInstance())
