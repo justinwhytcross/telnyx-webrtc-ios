@@ -553,6 +553,10 @@ public class Call {
         self.configureStatsReporter()
         Logger.log.i(message: "[TRICKLE-ICE] Call:: Creating Peer for outbound call with useTrickleIce = \(self.useTrickleIce)")
         self.peer = Peer(iceServers: self.iceServers, forceRelayCandidate: self.forceRelayCandidate, useTrickleIce: self.useTrickleIce, isAnswering: false)
+        // Check if CallKit already activated audio before the peer was created
+        if let client = self.delegate as? TxClient {
+            client.checkPendingAudioEnable()
+        }
         self.startStatsReporter()
         self.peer?.delegate = self
         self.peer?.socket = self.socket
@@ -804,6 +808,10 @@ extension Call {
         self.configureStatsReporter()
         Logger.log.i(message: "[TRICKLE-ICE] Call:: Creating Peer for inbound call answer with useTrickleIce = \(self.useTrickleIce)")
         self.peer = Peer(iceServers: self.iceServers, forceRelayCandidate: self.forceRelayCandidate, useTrickleIce: self.useTrickleIce, isAnswering: true)
+        // Check if CallKit already activated audio before the peer was created
+        if let client = self.delegate as? TxClient {
+            client.checkPendingAudioEnable()
+        }
         self.enableQualityMetrics = debug
         self.startStatsReporter()
         self.peer?.delegate = self

@@ -265,7 +265,11 @@ class Peer : NSObject, WebRTCEventHandler {
             do {
                 Logger.log.i(message: "Peer:: Configuring AVAudioSession")
                 self.rtcAudioSession.useManualAudio = true
-                self.rtcAudioSession.isAudioEnabled = false
+                if !TxClient.manualAudioSessionManagement {
+                    self.rtcAudioSession.isAudioEnabled = false
+                } else {
+                    Logger.log.i(message: "Peer:: [MANUAL_AUDIO] Skipping isAudioEnabled=false (manual mode)")
+                }
                 try rtcAudioSession.setCategory(AVAudioSession.Category.playAndRecord,
                                                 mode: AVAudioSession.Mode.voiceChat,
                                                 options: [

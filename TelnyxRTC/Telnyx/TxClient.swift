@@ -135,6 +135,25 @@ public class TxClient {
     public internal(set) var calls: [UUID: Call] = [UUID: Call]()
     /// Subscribe to TxClient delegate to receive Telnyx SDK events
     public weak var delegate: TxClientDelegate?
+
+    // MARK: - Manual Audio Session Management
+
+    /// When `true`, the SDK will NOT automatically reset `isAudioEnabled` during peer creation.
+    /// The app is responsible for calling `enableAudioSession()` / `disableAudioSession()`
+    /// exclusively from CallKit's `didActivateAudioSession` / `didDeactivateAudioSession`.
+    ///
+    /// Set this to `true` BEFORE creating the TxClient instance.
+    ///
+    /// Example:
+    /// ```swift
+    /// TxClient.manualAudioSessionManagement = true
+    /// let client = TxClient()
+    /// ```
+    public static var manualAudioSessionManagement: Bool = false
+
+    /// Internal flag: tracks whether the app has requested audio activation
+    /// before a peer connection was ready to receive it.
+    internal var pendingAudioEnable: Bool = false
     private var socket : Socket?
 
     private var answerCallAction: CXAnswerCallAction? = nil
@@ -232,8 +251,22 @@ public class TxClient {
     /// }
     /// ```
     public func enableAudioSession(audioSession: AVAudioSession) {
-        setupCorrectAudioConfiguration()
-        setAudioSessionActive(true)
+        if TxClient.manualAudioSessionManagement {
+            Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] enableAudioSession called")
+            self.pendingAudioEnable = true
+
+            // If any active call already has a peer, apply audio immediately
+            if self.calls.values.contains(where: { $0.peer != nil }) {
+                Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] Peer exists — applying audio now")
+                self.applyAudioEnable(audioSession: audioSession)
+            } else {
+                Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] No peer yet — deferring audio activation")
+            }
+        } else {
+            // Original behavior (unchanged)
+            setupCorrectAudioConfiguration()
+            setAudioSessionActive(true)
+        }
     }
     
     /// Disables and resets the audio session.
@@ -251,8 +284,19 @@ public class TxClient {
     /// }
     /// ```
     public func disableAudioSession(audioSession: AVAudioSession) {
-        resetAudioConfiguration()
-        setAudioSessionActive(false)
+        if TxClient.manualAudioSessionManagement {
+            Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] disableAudioSession called")
+            self.pendingAudioEnable = false
+            let rtcSession = RTCAudioSession.sharedInstance()
+            rtcSession.lockForConfiguration()
+            rtcSession.audioSessionDidDeactivate(audioSession)
+            rtcSession.isAudioEnabled = false
+            rtcSession.unlockForConfiguration()
+        } else {
+            // Original behavior (unchanged)
+            resetAudioConfiguration()
+            setAudioSessionActive(false)
+        }
     }
     
     /// The current audio route configuration.
@@ -1993,7 +2037,7 @@ extension TxClient {
 
     internal func setAudioSessionActive(_ active: Bool) {
         let rtcAudioSession = RTCAudioSession.sharedInstance()
-        
+
         rtcAudioSession.lockForConfiguration()
         do {
             try rtcAudioSession.setActive(active)
@@ -2002,5 +2046,26 @@ extension TxClient {
             Logger.log.e(message: "Failed to set audio session active: \(error)")
         }
         rtcAudioSession.unlockForConfiguration()
+    }
+
+    /// Applies deferred audio activation. Called when:
+    /// 1. `enableAudioSession()` is called and a peer already exists, OR
+    /// 2. A peer is created after `enableAudioSession()` was already called.
+    internal func applyAudioEnable(audioSession: AVAudioSession) {
+        let rtcSession = RTCAudioSession.sharedInstance()
+        rtcSession.lockForConfiguration()
+        Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] applyAudioEnable — activating RTCAudioSession")
+        rtcSession.audioSessionDidActivate(audioSession)
+        rtcSession.isAudioEnabled = true
+        Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] applyAudioEnable — isAudioEnabled = true")
+        rtcSession.unlockForConfiguration()
+    }
+
+    /// Called by Call.swift after a Peer is created, to check if audio was deferred.
+    internal func checkPendingAudioEnable() {
+        if TxClient.manualAudioSessionManagement && pendingAudioEnable {
+            Logger.log.i(message: "TxClient:: [MANUAL_AUDIO] Peer ready — applying deferred audio activation")
+            applyAudioEnable(audioSession: AVAudioSession.sharedInstance())
+        }
     }
 }
