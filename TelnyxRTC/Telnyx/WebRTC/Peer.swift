@@ -274,7 +274,8 @@ class Peer : NSObject, WebRTCEventHandler {
                                                 mode: AVAudioSession.Mode.voiceChat,
                                                 options: [
                                                     .duckOthers,          // Reduce other apps' volume
-                                                    .allowBluetooth,      // Enable Bluetooth headsets
+                                                    .allowBluetooth,      // Enable BT HFP headsets (call profile)
+                                                    .allowBluetoothA2DP,  // Enable BT A2DP output (AirPods, modern speakers)
                                                 ])
 
                 try rtcAudioSession.setPreferredIOBufferDuration(0.01) // 10 ms
